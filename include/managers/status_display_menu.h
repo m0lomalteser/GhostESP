@@ -70,6 +70,5 @@ void status_menu_render(const menu_gfx_t *gfx);
 
 const menu_level_t *status_menu_get_current(void);
 int status_menu_get_selected(void);
-int status_menu_get_scroll_offset(void);
 
 #endif // STATUS_DISPLAY_MENU_H
