@@ -478,13 +478,17 @@ static void dispatch_menu_action(menu_action_t action) {
             handle_chip_info_cmd(0, NULL);
             break;
         case MENU_ACTION_NFC_SCAN: {
+#if defined(CONFIG_NFC_ST25R3916) || defined(CONFIG_NFC_PN532)
             char *argv[] = {"nfc", "scan"};
             handle_nfc_cmd(2, argv);
+#endif
             break;
         }
         case MENU_ACTION_NFC_EMULATE: {
+#if defined(CONFIG_NFC_ST25R3916) || defined(CONFIG_NFC_PN532)
             char *argv[] = {"nfc", "emulate", "ndef", "url", "https://ghostesp.net"};
             handle_nfc_cmd(5, argv);
+#endif
             break;
         }
         case MENU_ACTION_WIFI_EAPOL: {
