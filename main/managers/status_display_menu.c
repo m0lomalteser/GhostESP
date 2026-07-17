@@ -12,8 +12,6 @@
 #define MENU_VISIBLE_ITEMS 3
 #define MENU_SCROLL_BAR_W 3
 
-static const char *TAG = "StatusMenu";
-
 static bool s_menu_active;
 static int s_selected_index;
 static int s_scroll_offset;
@@ -210,8 +208,8 @@ void status_menu_handle_long_press(void) {
 
     if (item->action == MENU_ACTION_BACK) {
         if (s_current_level > 0) {
-            s_current_level = s_level_stack[--s_current_level];
-            s_selected_index = 0;
+            s_current_level--;
+            s_selected_index = s_level_stack[s_current_level];
             s_scroll_offset = 0;
             ensure_selection_visible();
         } else {
