@@ -67,8 +67,6 @@ void status_menu_deactivate(void);
 void status_menu_handle_press(void);
 void status_menu_handle_long_press(void);
 void status_menu_render(const menu_gfx_t *gfx);
-
-const menu_level_t *status_menu_get_current(void);
-int status_menu_get_selected(void);
+menu_action_t status_menu_consume_action(void);
 
 #endif // STATUS_DISPLAY_MENU_H

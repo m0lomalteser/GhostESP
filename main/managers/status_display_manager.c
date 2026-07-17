@@ -23,6 +23,12 @@
 #include "managers/settings_manager.h"
 #include "managers/status_display_animations.h"
 #include "managers/status_display_menu.h"
+#include "managers/wifi_manager.h"
+#include "managers/ble_manager.h"
+#include "attacks/ble/ble_spam.h"
+#include "scans/ble/flipper_scan.h"
+#include "scans/ble/advertiser_scan.h"
+#include "core/commands.h"
 
 static esp_err_t status_display_send(uint8_t control, const uint8_t *data, size_t len);
 
@@ -415,6 +421,82 @@ static void status_display_menu_refresh(void) {
     }
 }
 
+static void dispatch_menu_action(menu_action_t action) {
+    switch (action) {
+        case MENU_ACTION_WIFI_SCAN:
+            wifi_manager_start_scan();
+            break;
+        case MENU_ACTION_WIFI_STATION_SCAN:
+            wifi_manager_start_station_scan();
+            break;
+        case MENU_ACTION_WIFI_DEAUTH:
+            wifi_manager_deauth_station();
+            break;
+        case MENU_ACTION_WIFI_BEACON:
+            wifi_manager_start_beacon(NULL);
+            break;
+        case MENU_ACTION_WIFI_BEACON_RICKROLL:
+            wifi_manager_start_beacon("RICKROLL");
+            break;
+        case MENU_ACTION_WIFI_KARMA:
+            wifi_manager_start_karma();
+            break;
+        case MENU_ACTION_BLE_GATT_SCAN:
+            ble_start_gatt_scan();
+            break;
+        case MENU_ACTION_BLE_FLIPPER_SCAN:
+            flipper_scan_start();
+            break;
+        case MENU_ACTION_BLE_AIRTAG_SCAN:
+            ble_start_airtag_scanner();
+            break;
+        case MENU_ACTION_BLE_ADVERTISER_SCAN:
+            advertiser_scan_start();
+            break;
+        case MENU_ACTION_BLE_RAW_SCAN:
+            ble_start_raw_ble_packetscan();
+            break;
+        case MENU_ACTION_BLE_SPAM_APPLE:
+            ble_spam_start(BLE_SPAM_APPLE);
+            break;
+        case MENU_ACTION_BLE_SPAM_SAMSUNG:
+            ble_spam_start(BLE_SPAM_SAMSUNG);
+            break;
+        case MENU_ACTION_BLE_SPAM_GOOGLE:
+            ble_spam_start(BLE_SPAM_GOOGLE);
+            break;
+        case MENU_ACTION_SWEEP:
+            sweep_start_async(10, 10);
+            break;
+        case MENU_ACTION_STOP_ALL:
+            handle_stop_flipper(0, NULL);
+            break;
+        case MENU_ACTION_SETTINGS:
+            handle_settings_cmd(0, NULL);
+            break;
+        case MENU_ACTION_INFO:
+            handle_chip_info_cmd(0, NULL);
+            break;
+        case MENU_ACTION_NFC_SCAN: {
+            char *argv[] = {"nfc", "scan"};
+            handle_nfc_cmd(2, argv);
+            break;
+        }
+        case MENU_ACTION_NFC_EMULATE: {
+            char *argv[] = {"nfc", "emulate", "ndef", "url", "https://ghostesp.net"};
+            handle_nfc_cmd(5, argv);
+            break;
+        }
+        case MENU_ACTION_WIFI_EAPOL: {
+            char *argv[] = {"capture", "-eapol"};
+            handle_capture_scan(2, argv);
+            break;
+        }
+        default:
+            break;
+    }
+}
+
 static void status_display_button_task(void *arg) {
     (void)arg;
     gpio_config_t io_conf = {
@@ -451,6 +533,11 @@ static void status_display_button_task(void *arg) {
                 } else if (held >= BTN_LONG_PRESS_MS) {
                     if (s_menu_mode) {
                         status_menu_handle_long_press();
+                        menu_action_t action = status_menu_consume_action();
+                        if (action != MENU_ACTION_NONE) {
+                            dispatch_menu_action(action);
+                            s_menu_mode = false;
+                        }
                         if (!status_menu_is_active()) {
                             s_menu_mode = false;
                         }

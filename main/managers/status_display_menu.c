@@ -5,17 +5,14 @@
 #include "managers/status_display_menu.h"
 #include <string.h>
 
-#define ICON_SCALE 5
+#define ICON_SCALE 3
 #define ICON_RENDER_SIZE (8 * ICON_SCALE)
-#define TITLE_Y 2
-#define ICON_Y 12
-#define LABEL_Y (ICON_Y + ICON_RENDER_SIZE + 4)
-#define DOTS_Y 60
 
 static bool s_menu_active;
 static int s_selected_index;
 static int s_current_level;
 static int s_level_stack[MENU_MAX_SUBMENUS];
+static menu_action_t s_pending_action;
 
 static const uint8_t icon_wifi[] = {
     0x00, 0x00, 0x00, 0x42, 0x24, 0x18, 0x00, 0x00
@@ -140,10 +137,20 @@ static void draw_scaled_icon(const menu_gfx_t *gfx, int cx, int cy, const uint8_
     }
 }
 
+static void draw_centered_text(const menu_gfx_t *gfx, int y, const char *text) {
+    int w = gfx->width;
+    int char_w = gfx->font_char_width + 1;
+    int len = (int)strlen(text);
+    int x = (w - len * char_w) / 2;
+    if (x < 0) x = 0;
+    gfx->draw_text(gfx->user, x, y, text);
+}
+
 void status_menu_init(void) {
     s_menu_active = false;
     s_selected_index = 0;
     s_current_level = 0;
+    s_pending_action = MENU_ACTION_NONE;
     memset(s_level_stack, 0, sizeof(s_level_stack));
 }
 
@@ -155,6 +162,7 @@ void status_menu_activate(void) {
     s_menu_active = true;
     s_current_level = 0;
     s_selected_index = 0;
+    s_pending_action = MENU_ACTION_NONE;
     memset(s_level_stack, 0, sizeof(s_level_stack));
 }
 
@@ -198,6 +206,14 @@ void status_menu_handle_long_press(void) {
         }
         return;
     }
+
+    s_pending_action = item->action;
+}
+
+menu_action_t status_menu_consume_action(void) {
+    menu_action_t a = s_pending_action;
+    s_pending_action = MENU_ACTION_NONE;
+    return a;
 }
 
 void status_menu_render(const menu_gfx_t *gfx) {
@@ -206,20 +222,21 @@ void status_menu_render(const menu_gfx_t *gfx) {
     if (!lvl) return;
 
     int w = gfx->width;
-    int char_w = gfx->font_char_width + 1;
+    int h = gfx->height;
+    int char_h = 7 * gfx->scale_y;
 
-    int title_len = (int)strlen(lvl->title);
-    int title_x = (w - title_len * char_w) / 2;
-    if (title_x < 0) title_x = 0;
-    gfx->draw_text(gfx->user, title_x, TITLE_Y, lvl->title);
+    int icon_cy = 1 + char_h + 2 + ICON_RENDER_SIZE / 2;
+    int icon_bottom = icon_cy + ICON_RENDER_SIZE / 2;
+    int label_y = icon_bottom + 4;
+    int dots_y = label_y + char_h + 3;
+    if (dots_y > h - 2) dots_y = h - 2;
+
+    draw_centered_text(gfx, 1, lvl->title);
 
     const menu_item_t *item = &lvl->items[s_selected_index];
-    draw_scaled_icon(gfx, w / 2, ICON_Y + ICON_RENDER_SIZE / 2, item->icon);
+    draw_scaled_icon(gfx, w / 2, icon_cy, item->icon);
 
-    int label_len = (int)strlen(item->label);
-    int label_x = (w - label_len * char_w) / 2;
-    if (label_x < 0) label_x = 0;
-    gfx->draw_text(gfx->user, label_x, LABEL_Y, item->label);
+    draw_centered_text(gfx, label_y, item->label);
 
     int total = lvl->count;
     int dot_spacing = 4;
@@ -228,21 +245,12 @@ void status_menu_render(const menu_gfx_t *gfx) {
     for (int i = 0; i < total; ++i) {
         int dx = dots_start_x + i * dot_spacing;
         bool active = (i == s_selected_index);
-        gfx->plot_pixel(gfx->user, dx, DOTS_Y, active);
+        gfx->plot_pixel(gfx->user, dx, dots_y, active);
         if (active) {
-            gfx->plot_pixel(gfx->user, dx - 1, DOTS_Y, true);
-            gfx->plot_pixel(gfx->user, dx + 1, DOTS_Y, true);
+            gfx->plot_pixel(gfx->user, dx - 1, dots_y, true);
+            gfx->plot_pixel(gfx->user, dx + 1, dots_y, true);
         }
     }
-}
-
-const menu_level_t *status_menu_get_current(void) {
-    if (!s_menu_active || s_current_level >= (int)NUM_LEVELS) return NULL;
-    return &levels[s_current_level];
-}
-
-int status_menu_get_selected(void) {
-    return s_selected_index;
 }
 
 #endif // CONFIG_WITH_STATUS_DISPLAY
