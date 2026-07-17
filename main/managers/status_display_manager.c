@@ -22,6 +22,7 @@
 #include "i2c_bus_lock.h"
 #include "managers/settings_manager.h"
 #include "managers/status_display_animations.h"
+#include "managers/status_display_menu.h"
 
 static esp_err_t status_display_send(uint8_t control, const uint8_t *data, size_t len);
 
@@ -68,6 +69,15 @@ static StaticTask_t *s_anim_task_tcb;
 static TickType_t s_next_anim_allowed_tick;
 static TickType_t s_oom_backoff_until;
 static bool s_oom_logged;
+
+// Button handling state machine
+#define BTN_DEBOUNCE_MS 50
+#define BTN_LONG_PRESS_MS 500
+typedef enum { BTN_IDLE, BTN_PRESSED, BTN_WAIT_RELEASE } btn_state_t;
+static btn_state_t s_btn_state;
+static TickType_t s_btn_down_tick;
+static TaskHandle_t s_btn_task;
+static bool s_menu_mode;
 // static int s_i2c_error_streak; // unused
 
 static esp_err_t status_display_init_i2c(void) {
@@ -335,6 +345,7 @@ static void status_display_anim_task(void *arg) {
     (void)arg;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (s_menu_mode) continue;
         TickType_t now = xTaskGetTickCount();
         if (!status_idle_delay_elapsed(now)) {
             status_display_animations_reset();
@@ -379,6 +390,84 @@ static void status_display_sanitize(char *dst, size_t dst_len, const char *src) 
         dst[pos++] = c;
     }
     dst[pos] = '\0';
+}
+
+static void status_display_render_menu_locked(void) {
+    menu_gfx_t gfx = {
+        .plot_pixel = anim_plot_pixel,
+        .draw_text = anim_draw_text,
+        .user = NULL,
+        .width = 128,
+        .height = 64,
+        .scale_y = SCALE_Y,
+        .font_char_width = 5,
+    };
+    status_display_clear_buffer();
+    status_menu_render(&gfx);
+    status_display_flush();
+}
+
+static void status_display_menu_refresh(void) {
+    if (!s_ready || !s_menu_mode) return;
+    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        status_display_render_menu_locked();
+        xSemaphoreGive(s_mutex);
+    }
+}
+
+static void status_display_button_task(void *arg) {
+    (void)arg;
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << CONFIG_STATUS_DISPLAY_BUTTON_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io_conf);
+
+    for (;;) {
+        bool pressed = (gpio_get_level(CONFIG_STATUS_DISPLAY_BUTTON_PIN) == 0);
+        TickType_t now = xTaskGetTickCount();
+
+        switch (s_btn_state) {
+            case BTN_IDLE:
+                if (pressed) {
+                    s_btn_down_tick = now;
+                    s_btn_state = BTN_PRESSED;
+                }
+                break;
+            case BTN_PRESSED: {
+                TickType_t held = (now - s_btn_down_tick) * portTICK_PERIOD_MS;
+                if (!pressed) {
+                    if (!s_menu_mode) {
+                        s_menu_mode = true;
+                        status_menu_activate();
+                    } else {
+                        status_menu_handle_press();
+                    }
+                    status_display_menu_refresh();
+                    s_btn_state = BTN_IDLE;
+                } else if (held >= BTN_LONG_PRESS_MS) {
+                    if (s_menu_mode) {
+                        status_menu_handle_long_press();
+                        if (!status_menu_is_active()) {
+                            s_menu_mode = false;
+                        }
+                    }
+                    status_display_menu_refresh();
+                    s_btn_state = BTN_WAIT_RELEASE;
+                }
+                break;
+            }
+            case BTN_WAIT_RELEASE:
+                if (!pressed) {
+                    s_btn_state = BTN_IDLE;
+                }
+                break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(BTN_DEBOUNCE_MS));
+    }
 }
 
 void status_display_init(void) {
@@ -496,6 +585,12 @@ void status_display_init(void) {
                         NULL, tskIDLE_PRIORITY + 1, &s_anim_task);
         }
     }
+    // initialize menu system and button task
+    status_menu_init();
+    s_menu_mode = false;
+    s_btn_state = BTN_IDLE;
+    xTaskCreate(status_display_button_task, "status_btn", 2048, NULL,
+                tskIDLE_PRIORITY + 2, &s_btn_task);
     ESP_LOGI(TAG, "status display ready");
 }
 
@@ -508,6 +603,7 @@ void status_display_set_lines(const char *line_one, const char *line_two) {
         ESP_LOGW(TAG, "set_lines called while display not ready");
         return;
     }
+    if (s_menu_mode) return;
     char tmp1[sizeof(s_line1)];
     char tmp2[sizeof(s_line2)];
     status_display_sanitize(tmp1, sizeof(tmp1), line_one ? line_one : "");

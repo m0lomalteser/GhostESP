@@ -185,6 +185,15 @@ menu "Ghost ESP Options"
             GPIO pin for display reset. Set to -1 to disable.
             For Heltec V3, this should be GPIO21.
 
+    config STATUS_DISPLAY_BUTTON_PIN
+        int "Status Display Menu Button GPIO Pin"
+        default 0
+        depends on WITH_STATUS_DISPLAY
+        help
+            GPIO pin for the menu navigation button on the status display.
+            Short press = next item, long press = select.
+            For Heltec V3, the PRG button is GPIO0.
+
     endmenu
 
     menu "Misc Options"
